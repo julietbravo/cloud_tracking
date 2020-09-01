@@ -10,8 +10,22 @@ import sys
 resource.setrlimit(resource.RLIMIT_STACK, [100000000000, resource.RLIM_INFINITY])
 sys.setrecursionlimit(1000000000)
 
+
 @jit(nopython=True, nogil=True, fastmath=True)
-def grow_cell_inst(cloud_id, mask, uid, i, j, itot, jtot):
+def no_overlap(base1, top1, base2, top2):
+    """
+    Check for possible cloud overlap, where the cloud top of one
+    grid point is below the cloud base of another
+    """
+
+    if base1 <= top2 and top1 >= base2:
+        return True
+    else:
+        return False
+
+
+@jit(nopython=True, nogil=True, fastmath=True)
+def grow_cell_inst(cloud_id, mask, base, top, uid, i, j, itot, jtot):
     """
     Recursive function to find connected cloud (or cloud core) regions.
     Uses one single time step, so no time tracking is included.
@@ -27,23 +41,27 @@ def grow_cell_inst(cloud_id, mask, uid, i, j, itot, jtot):
 
     # West
     if mask[j,im] and cloud_id[j,im] != uid:
-        grow_cell_inst(cloud_id, mask, uid, im, j, itot, jtot)
+        if no_overlap(base[j,i], top[j,i], base[j,im], top[j,im]):
+            grow_cell_inst(cloud_id, mask, base, top, uid, im, j, itot, jtot)
 
     # East
     if mask[j,ip] and cloud_id[j,ip] != uid:
-        grow_cell_inst(cloud_id, mask, uid, ip, j, itot, jtot)
+        if no_overlap(base[j,i], top[j,i], base[j,ip], top[j,ip]):
+            grow_cell_inst(cloud_id, mask, base, top, uid, ip, j, itot, jtot)
 
     # South
     if mask[jm,i] and cloud_id[jm,i] != uid:
-        grow_cell_inst(cloud_id, mask, uid, i, jm, itot, jtot)
+        if no_overlap(base[j,i], top[j,i], base[jm,i], top[jm,i]):
+            grow_cell_inst(cloud_id, mask, base, top, uid, i, jm, itot, jtot)
 
     # North
     if mask[jp,i] and cloud_id[jp,i] != uid:
-        grow_cell_inst(cloud_id, mask, uid, i, jp, itot, jtot)
+        if no_overlap(base[j,i], top[j,i], base[jp,i], top[jp,i]):
+            grow_cell_inst(cloud_id, mask, base, top, uid, i, jp, itot, jtot)
 
 
 @jit(nopython=True, nogil=True, fastmath=True)
-def find_cells_inst(cloud_id, mask, itot, jtot):
+def find_cells_inst(cloud_id, mask, base, top, itot, jtot):
     """
     Find the individual cells (single time step)
     """
@@ -55,21 +73,8 @@ def find_cells_inst(cloud_id, mask, itot, jtot):
     for j in range(jtot):
         for i in range(itot):
             if mask[j,i] and cloud_id[j,i] == 0:
-                grow_cell_inst(cloud_id, mask, uid, i, j, itot, jtot)
+                grow_cell_inst(cloud_id, mask, base, top, uid, i, j, itot, jtot)
                 uid += 1
-
-
-@jit(nopython=True, nogil=True, fastmath=True)
-def no_overlap(base1, top1, base2, top2):
-    """
-    Check for possible cloud overlap, where the cloud top of one
-    grid point is below the cloud base of another
-    """
-
-    if base1 <= top2 and top1 >= base2:
-        return True
-    else:
-        return False
 
 
 @jit(nopython=True, nogil=True, fastmath=True)
@@ -228,8 +233,8 @@ if __name__ == '__main__':
         core_id  = np.zeros((jtot, itot), dtype=np.uint16)
 
         t = -1
-        find_cells_inst(cloud_id, wp_mask[t,:,:],  itot, jtot)
-        find_cells_inst(core_id,  thv_mask[t,:,:], itot, jtot)
+        find_cells_inst(cloud_id, wp_mask[t,:,:],  base[t,:,:], top[t,:,:], itot, jtot)
+        find_cells_inst(core_id,  thv_mask[t,:,:], base[t,:,:], top[t,:,:], itot, jtot)
 
         pl.close('all'); pl.ion()
 
