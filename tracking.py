@@ -97,14 +97,14 @@ def find_cells(cloud_id, mask, base, top, nt, itot, jtot, time_tracking):
 if __name__ == '__main__':
 
     # Time indices to process:
-    dt = 30
-    t0 = 7200//dt
-    t1 = 1420
+    dt = 60
+    t0 = 0
+    t1 = 721
     time_tracking = False
 
     # Read the total (ice+water) water path, and
     # column max cloud core theta_v perturbation
-    data_path = '/home/scratch1/meteo_data/MicroHH/cabauw_mirjam/20200921/cabauw_20180811_2i4/'
+    data_path = '.'
 
     nc_1 = nc4.Dataset(f'{data_path}/qlqicore_max_thv_prime.xy.nc')
     nc_2 = nc4.Dataset(f'{data_path}/qlqipath.xy.nc')
@@ -168,9 +168,9 @@ if __name__ == '__main__':
         dim_y = nc.createDimension('y', jtot)
         dim_t = nc.createDimension('time', nt)
 
-        var_x = nc.createVariable('x', np.float, 'x')
-        var_y = nc.createVariable('y', np.float, 'y')
-        var_t = nc.createVariable('time', np.float, 'time')
+        var_x = nc.createVariable('x', np.float32, 'x')
+        var_y = nc.createVariable('y', np.float32, 'y')
+        var_t = nc.createVariable('time', np.float32, 'time')
 
         var_id = nc.createVariable('id', dtype_int, ('time','y','x'))
 
