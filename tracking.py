@@ -94,6 +94,26 @@ def find_cells(cloud_id, mask, base, top, nt, itot, jtot, time_tracking):
                     uid += 1
 
 
+def get_sizes(cloud_ids, A_gridpoint, nt):
+    """
+    Create array with all cloud/core sizes from all time steps
+    """
+
+    n_clouds = 0
+    for t in range(nt):
+        n_clouds += np.unique(cloud_ids[t,:,:]).size-1  # -1 for skipping id=0
+
+    cloud_size = np.zeros(n_clouds)
+    i = 0
+    for t in range(nt):
+        ids, counts = np.unique(cloud_ids[t,:,:], return_counts=True)
+        sizes = np.sqrt(counts * A_gridpoint)
+        cloud_size[i:i+ids.size-1] = sizes[1:]          # skip id=0
+        i += ids.size-1
+
+    return cloud_size
+
+
 if __name__ == '__main__':
 
     # Time indices to process:
@@ -115,6 +135,9 @@ if __name__ == '__main__':
     x = nc_1.variables['x'][:]
     y = nc_1.variables['y'][:]
     time = nc_1.variables['time'][t0:t1]
+
+    dx = x[1]-x[0]
+    dy = y[1]-y[0]
 
     itot = x.size
     jtot = y.size
@@ -154,29 +177,49 @@ if __name__ == '__main__':
     print('Tracking cores')
     find_cells(core_id,  thv_mask, base, top, nt, itot, jtot, time_tracking)
 
+    print('Calculating cloud sizes')
+    cloud_sizes = get_sizes(cloud_id, dx*dy, nt)
+    print('Calculating core sizes')
+    core_sizes = get_sizes(core_id, dx*dy, nt)
+
     # Save ID's in NetCDF format
     if time_tracking:
         nc_names = ['cloud_tracking_time.nc', 'core_tracking_time.nc']
     else:
         nc_names = ['cloud_tracking_inst.nc', 'core_tracking_inst.nc']
-    values   = [cloud_id, core_id]
 
-    for nc_name, ids in zip(nc_names, values):
+    values   = [cloud_id, core_id]
+    sizes    = [cloud_sizes, core_sizes]
+
+    for n in range(2):
+        nc_name = nc_names[n]
+        ids = values[n]
+        size = sizes[n]
+
         nc = nc4.Dataset(nc_name, 'w')
 
         dim_x = nc.createDimension('x', itot)
         dim_y = nc.createDimension('y', jtot)
         dim_t = nc.createDimension('time', nt)
+        dim_s = nc.createDimension('n', size.size)
 
         var_x = nc.createVariable('x', np.float32, 'x')
         var_y = nc.createVariable('y', np.float32, 'y')
         var_t = nc.createVariable('time', np.float32, 'time')
 
         var_id = nc.createVariable('id', dtype_int, ('time','y','x'))
+        var_s  = nc.createVariable('size', np.float32, ('n'))
+
+        var_x.setncatts({'units': 'm', 'long_name': 'grid point center x-direction'})
+        var_y.setncatts({'units': 'm', 'long_name': 'grid point center y-direction'})
+        var_t.setncatts({'units': 's', 'long_name': 'seconds since start of experiment'})
+        var_id.setncatts({'units': '-', 'long_name': 'unique cloud ID'})
+        var_s.setncatts({'units': 'm', 'long_name': 'cloud size as sqrt(area)'})
 
         var_x [:] = x
         var_y [:] = y
         var_t [:] = time
         var_id[:] = ids
+        var_s [:] = size
 
         nc.close()
