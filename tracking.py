@@ -94,24 +94,33 @@ def find_cells(cloud_id, mask, base, top, nt, itot, jtot, time_tracking):
                     uid += 1
 
 
-def get_sizes(cloud_ids, A_gridpoint, nt):
+def get_sizes(cloud_ids, A_gridpoint, nt, splitting=False):
     """
-    Create array with all cloud/core sizes from all time steps
+    Create array with all cloud/core sizes from all time steps,
+    and calculate some statistics like clouds/time step, mean size, etc.
     """
 
-    n_clouds = 0
+    # Time statistics (number of clouds, size, ...)
+    n_clouds = np.zeros(nt, dtype=np.int32)
+    mean_cloud_size = np.zeros(nt, dtype=np.float32)
+
     for t in range(nt):
-        n_clouds += np.unique(cloud_ids[t,:,:]).size-1  # -1 for skipping id=0
+        n_clouds[t] = np.unique(cloud_ids[t,:,:]).size-1  # -1 for skipping id=0
 
-    cloud_size = np.zeros(n_clouds)
+    n_total_clouds = np.sum(n_clouds)
+    cloud_sizes = np.zeros(n_total_clouds)
+
+    # Get list with all cloud sizes:
     i = 0
     for t in range(nt):
         ids, counts = np.unique(cloud_ids[t,:,:], return_counts=True)
         sizes = np.sqrt(counts * A_gridpoint)
-        cloud_size[i:i+ids.size-1] = sizes[1:]          # skip id=0
+        cloud_sizes[i:i+ids.size-1] = sizes[1:]          # skip id=0
+        if sizes.size > 1:
+            mean_cloud_size[t] = np.mean(sizes[1:])
         i += ids.size-1
 
-    return cloud_size
+    return cloud_sizes, n_clouds, mean_cloud_size
 
 
 if __name__ == '__main__':
@@ -126,75 +135,81 @@ if __name__ == '__main__':
     # column max cloud core theta_v perturbation
     data_path = '.'
 
-    nc_1 = nc4.Dataset(f'{data_path}/qlqicore_max_thv_prime.xy.nc')
-    nc_2 = nc4.Dataset(f'{data_path}/qlqipath.xy.nc')
-    nc_3 = nc4.Dataset(f'{data_path}/qlqibase.xy.nc')
-    nc_4 = nc4.Dataset(f'{data_path}/qlqitop.xy.nc')
+    if 'wp_mask' not in locals():
+        nc_1 = nc4.Dataset(f'{data_path}/qlqicore_max_thv_prime.xy.nc')
+        nc_2 = nc4.Dataset(f'{data_path}/qlqipath.xy.nc')
+        nc_3 = nc4.Dataset(f'{data_path}/qlqibase.xy.nc')
+        nc_4 = nc4.Dataset(f'{data_path}/qlqitop.xy.nc')
 
-    # Info LES grid & time:
-    x = nc_1.variables['x'][:]
-    y = nc_1.variables['y'][:]
-    time = nc_1.variables['time'][t0:t1]
+        # Info LES grid & time:
+        x = nc_1.variables['x'][:]
+        y = nc_1.variables['y'][:]
+        time = nc_1.variables['time'][t0:t1]
 
-    dx = x[1]-x[0]
-    dy = y[1]-y[0]
+        dx = x[1]-x[0]
+        dy = y[1]-y[0]
 
-    itot = x.size
-    jtot = y.size
-    nt = time.size
+        itot = x.size
+        jtot = y.size
+        nt = time.size
 
-    # Read all data to memory (..)
-    dtype = np.float32
-    thv  = nc_1.variables['qlqicore_max_thv_prime'][t0:t1,:,:].astype(dtype)
-    wp   = nc_2.variables['qlqipath'][t0:t1,:,:].astype(dtype)
-    base = nc_3.variables['qlqibase'][t0:t1,:,:].astype(dtype)
-    top  = nc_4.variables['qlqitop'] [t0:t1,:,:].astype(dtype)
+        # Read all data to memory (..)
+        dtype = np.float32
+        thv  = nc_1.variables['qlqicore_max_thv_prime'][t0:t1,:,:].astype(dtype)
+        wp   = nc_2.variables['qlqipath'][t0:t1,:,:].astype(dtype)
+        base = nc_3.variables['qlqibase'][t0:t1,:,:].astype(dtype)
+        top  = nc_4.variables['qlqitop'] [t0:t1,:,:].astype(dtype)
 
-    # Set masked grid points theta_v perturbation to small value, and remove mask
-    thv[thv.mask] = -10
-    thv = np.array(thv, dtype=dtype)
+        # Set masked grid points theta_v perturbation to small value, and remove mask
+        thv[thv.mask] = -10
+        thv = np.array(thv, dtype=dtype)
 
-    # Water path (ice+water, g kg-1) threshold for clouds:
-    wp_thres = 5e-3
-    # Cloud core theta_v perturbation threshold for cloud cores:
-    thv_thres = 0.5
+        # Water path (ice+water, g kg-1) threshold for clouds:
+        wp_thres = 5e-3
+        # Cloud core theta_v perturbation threshold for cloud cores:
+        thv_thres = 0.5
 
-    # Masks for clouds and cloud cores:
-    wp_mask  = wp  > wp_thres
-    thv_mask = thv > thv_thres
+        # Masks for clouds and cloud cores:
+        wp_mask  = wp  > wp_thres
+        thv_mask = thv > thv_thres
 
-    # Cleanup!
-    del thv
-    del wp
+        # Cleanup!
+        del thv
+        del wp
 
     # Do the cloud tracking
-    dtype_int = np.uint32
-    cloud_id = np.zeros((nt, jtot, itot), dtype=dtype_int)
-    core_id  = np.zeros((nt, jtot, itot), dtype=dtype_int)
+    if 'cloud_id' not in locals():
+        dtype_int = np.uint32
+        cloud_id = np.zeros((nt, jtot, itot), dtype=dtype_int)
+        core_id  = np.zeros((nt, jtot, itot), dtype=dtype_int)
 
-    print('Tracking clouds')
-    find_cells(cloud_id, wp_mask,  base, top, nt, itot, jtot, time_tracking)
-    print('Tracking cores')
-    find_cells(core_id,  thv_mask, base, top, nt, itot, jtot, time_tracking)
+        print('Tracking clouds')
+        find_cells(cloud_id, wp_mask,  base, top, nt, itot, jtot, time_tracking)
+        print('Tracking cores')
+        find_cells(core_id,  thv_mask, base, top, nt, itot, jtot, time_tracking)
 
     print('Calculating cloud sizes')
-    cloud_sizes = get_sizes(cloud_id, dx*dy, nt)
+    cloud_sizes, cloud_count, mean_cloud_size = get_sizes(cloud_id, dx*dy, nt)
     print('Calculating core sizes')
-    core_sizes = get_sizes(core_id, dx*dy, nt)
+    core_sizes, core_count, mean_core_size = get_sizes(core_id, dx*dy, nt)
 
-    # Save ID's in NetCDF format
+    # Save statistics in NetCDF format
     if time_tracking:
         nc_names = ['cloud_tracking_time.nc', 'core_tracking_time.nc']
     else:
         nc_names = ['cloud_tracking_inst.nc', 'core_tracking_inst.nc']
 
-    values   = [cloud_id, core_id]
-    sizes    = [cloud_sizes, core_sizes]
+    values     = [cloud_id, core_id]
+    sizes      = [cloud_sizes, core_sizes]
+    counts     = [cloud_count, core_count]
+    mean_sizes = [mean_cloud_size, mean_core_size]
 
     for n in range(2):
         nc_name = nc_names[n]
         ids = values[n]
         size = sizes[n]
+        count = counts[n]
+        mean_size = mean_sizes[n]
 
         nc = nc4.Dataset(nc_name, 'w')
 
@@ -210,16 +225,23 @@ if __name__ == '__main__':
         var_id = nc.createVariable('id', dtype_int, ('time','y','x'))
         var_s  = nc.createVariable('size', np.float32, ('n'))
 
+        var_nc = nc.createVariable('n_clouds', dtype_int, ('time'))
+        var_size = nc.createVariable('mean_size', dtype_int, ('time'))
+
         var_x.setncatts({'units': 'm', 'long_name': 'grid point center x-direction'})
         var_y.setncatts({'units': 'm', 'long_name': 'grid point center y-direction'})
         var_t.setncatts({'units': 's', 'long_name': 'seconds since start of experiment'})
         var_id.setncatts({'units': '-', 'long_name': 'unique cloud ID'})
-        var_s.setncatts({'units': 'm', 'long_name': 'cloud size as sqrt(area)'})
+        var_s.setncatts({'units': 'm', 'long_name': 'unique cloud size as sqrt(area)'})
+        var_nc.setncatts({'units': '-', 'long_name': 'cloud count'})
+        var_size.setncatts({'units': 'm', 'long_name': 'mean cloud size'})
 
         var_x [:] = x
         var_y [:] = y
         var_t [:] = time
         var_id[:] = ids
         var_s [:] = size
+        var_nc[:] = count
+        var_size[:] = mean_size
 
         nc.close()
